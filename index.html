@@ -1140,18 +1140,67 @@
     function shareScore() {
         const time = fmtTime(state.totalTimeMs);
         const flags = state.roundScores.map(r => r.name).join(', ');
-        const text = '🎨 FlagPainter Speed Challenge\nI painted 5 flags in ' + time + '!\n' + flags + '\nCan you beat me? Play at flagpainter.app';
+        // Build a friendly multi-line result string with per-flag times
+        const lines = [];
+        const url = window.location.href || 'https://patrickr1995.github.io/flags/';
+        lines.push('🎨 FlagPainter — Speed Challenge');
+        lines.push('I painted ' + state.roundScores.length + ' flags in ' + time + '!');
+        lines.push('');
+        state.roundScores.forEach(r => {
+            const hintNote = r.hint ? ' (hint +10s)' : '';
+            lines.push('- ' + r.name + ': ' + fmtTime(r.timeMs) + hintNote);
+        });
+        lines.push('');
+        lines.push('Total: ' + time);
+        lines.push('Try to beat me: ' + url);
+        const text = lines.join('\n');
+
+        // If Web Share API is available prefer it (mobile/modern browsers)
         if (navigator.share) {
-            navigator.share({ title: 'FlagPainter', text: text, url: 'https://flagpainter.app' }).catch(() => {});
-        } else {
-            navigator.clipboard.writeText(text).then(() => {
-                const btn = document.getElementById('shareBtn');
-                const orig = btn.textContent;
-                btn.textContent = '✓ Copied!';
-                setTimeout(() => { btn.textContent = orig; }, 2000);
-            }).catch(() => {
-                prompt('Copy your score:', text);
+            navigator.share({ title: 'FlagPainter', text: text, url: url }).catch(() => {
+                // ignore share errors
             });
+            return;
+        }
+
+        // Try Clipboard API, fall back to execCommand copy, then prompt
+        const showCopiedUI = () => {
+            const btn = document.getElementById('shareBtn');
+            const orig = btn.textContent;
+            btn.textContent = '✓ Copied!';
+            setTimeout(() => { btn.textContent = orig; }, 2000);
+        };
+
+        const fallbackCopyText = (str) => {
+            // Create a temporary textarea for older browsers
+            const ta = document.createElement('textarea');
+            ta.value = str;
+            // Prevent scrolling to bottom
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                return true;
+            } catch (e) {
+                document.body.removeChild(ta);
+                return false;
+            }
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+                showCopiedUI();
+            }).catch(() => {
+                // fallback to older approach
+                const ok = fallbackCopyText(text);
+                if (ok) showCopiedUI(); else prompt('Copy your score:', text);
+            });
+        } else {
+            const ok = fallbackCopyText(text);
+            if (ok) showCopiedUI(); else prompt('Copy your score:', text);
         }
     }
 
@@ -1197,3 +1246,4 @@
 </script>
 </body>
 </html>
+
