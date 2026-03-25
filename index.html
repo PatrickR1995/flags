@@ -313,6 +313,16 @@
         .flash-correct { animation: flashCorrect 0.4s ease; }
         .flash-wrong { animation: flashWrong 0.4s ease; }
 
+        /* Share overlay styles */
+        .share-overlay {
+          position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); z-index: 200;
+        }
+        .share-overlay-inner {
+          background: var(--surface); border: 1px solid var(--border); padding: 18px; border-radius: 12px; width: min(680px, 92%);
+        }
+        .share-overlay-title { font-weight: 700; margin-bottom: 8px; color: var(--accent); font-family: 'Bebas Neue', sans-serif; letter-spacing: 1px; }
+        #shareOverlayText { width: 100%; height: 180px; border-radius: 8px; padding: 12px; font-size: 0.95rem; background: #0f0f12; color: var(--text); border: 1px solid var(--border); resize: vertical; }
+
         @media(max-width: 520px) {
             .card { padding: 20px; }
             .country-label { font-size: 1.5rem; }
@@ -389,6 +399,18 @@
 
 </div>
 <div id="toast"></div>
+
+<!-- Share overlay (shown when automatic copy fails) -->
+<div id="shareOverlay" class="share-overlay" style="display:none;">
+    <div class="share-overlay-inner">
+        <div class="share-overlay-title">Copy your score</div>
+        <textarea id="shareOverlayText" readonly></textarea>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:12px;">
+            <button id="shareOverlayCopy" class="btn btn-primary">Copy</button>
+            <button id="shareOverlayClose" class="btn btn-secondary">Close</button>
+        </div>
+    </div>
+</div>
 
 <script>
     // ═══════════════════════════════════════════════════════
@@ -1138,137 +1160,46 @@
     }
 
     function shareScore() {
+        // Copy only the minimal text requested by the user
         const time = fmtTime(state.totalTimeMs);
-        // Build a friendly multi-line result string with per-flag times
-        const lines = [];
         const url = window.location.href || 'https://patrickr1995.github.io/flags/';
+        const text = ['🎨 FlagPainter — Speed Challenge', 'Total: ' + time, '', 'Try it: ' + url].join('\n');
 
-        // If there are no round results, provide a minimal share and inform the user
-        if (!state.roundScores || state.roundScores.length === 0) {
-            const minimal = ['🎨 FlagPainter — Speed Challenge', 'Total: ' + time, '', 'Try it: ' + url].join('\n');
-            // prefer Clipboard API where available
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(minimal).then(() => {
-                    showToast('Score copied to clipboard', 'correct');
-                    const btn = document.getElementById('shareBtn');
-                    const orig = btn.textContent;
-                    btn.textContent = '✓ Copied!';
-                    setTimeout(() => { btn.textContent = orig; }, 2000);
-                }).catch(() => {
-                    // fallback to textarea or prompt
-                    const ok = (function(str){
-                        const ta = document.createElement('textarea');
-                        ta.value = str;
-                        ta.setAttribute('readonly', '');
-                        ta.style.position = 'absolute';
-                        ta.style.left = '-9999px';
-                        ta.style.fontSize = '12pt';
-                        document.body.appendChild(ta);
-                        ta.select();
-                        ta.setSelectionRange(0, ta.value.length);
-                        let ok = false;
-                        try { ok = document.execCommand('copy'); } catch(e) { ok = false; }
-                        document.body.removeChild(ta);
-                        return !!ok;
-                    })(minimal);
-                    if (ok) {
-                        showToast('Score copied to clipboard', 'correct');
-                    } else {
-                        prompt('Copy your score:', minimal);
-                    }
-                });
-            } else {
-                const ok = (function(str){
-                    const ta = document.createElement('textarea');
-                    ta.value = str;
-                    ta.setAttribute('readonly', '');
-                    ta.style.position = 'absolute';
-                    ta.style.left = '-9999px';
-                    ta.style.fontSize = '12pt';
-                    document.body.appendChild(ta);
-                    ta.select();
-                    ta.setSelectionRange(0, ta.value.length);
-                    let ok = false;
-                    try { ok = document.execCommand('copy'); } catch(e) { ok = false; }
-                    document.body.removeChild(ta);
-                    return !!ok;
-                })(minimal);
-                if (ok) showToast('Score copied to clipboard', 'correct'); else prompt('Copy your score:', minimal);
-            }
-            return;
-        }
-
-         lines.push('🎨 FlagPainter — Speed Challenge');
-         lines.push('I painted ' + state.roundScores.length + ' flags in ' + time + '!');
-         lines.push('');
-         state.roundScores.forEach(r => {
-             const hintNote = r.hint ? ' (hint +10s)' : '';
-             lines.push('- ' + r.name + ': ' + fmtTime(r.timeMs) + hintNote);
-         });
-         lines.push('');
-         lines.push('Total: ' + time);
-         lines.push('Try to beat me: ' + url);
-         const text = lines.join('\n');
-
-        // If Web Share API is available prefer it (mobile/modern browsers)
-        if (navigator.share) {
-            navigator.share({ title: 'FlagPainter', text: text, url: url }).catch(() => {
-                // ignore share errors
-            });
-            return;
-        }
-
-        // Try Clipboard API, fall back to execCommand copy, then prompt
-        const showCopiedUI = () => {
+        const setCopiedUI = () => {
             const btn = document.getElementById('shareBtn');
-            const orig = btn.textContent;
-            btn.textContent = '✓ Copied!';
-            setTimeout(() => { btn.textContent = orig; }, 2000);
+            if (btn) {
+                const orig = btn.textContent;
+                btn.textContent = '✓ Copied!';
+                setTimeout(() => { btn.textContent = orig; }, 2000);
+            }
             showToast('Score copied to clipboard', 'correct');
         };
 
-        const fallbackCopyText = (str) => {
-            // Create a temporary textarea for older browsers
+        const fallbackCopy = (str) => {
             const ta = document.createElement('textarea');
             ta.value = str;
-            // Prevent iOS from opening keyboard and ensure it's off-screen
             ta.setAttribute('readonly', '');
             ta.style.position = 'absolute';
             ta.style.left = '-9999px';
             ta.style.fontSize = '12pt';
             document.body.appendChild(ta);
-            // iOS selection workaround
             ta.select();
             ta.setSelectionRange(0, ta.value.length);
             let ok = false;
-            try {
-                ok = document.execCommand('copy');
-            } catch (e) {
-                ok = false;
-            }
+            try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
             document.body.removeChild(ta);
             return !!ok;
         };
 
-        const tryPromptFallback = () => prompt('Copy your score:', text);
-
+        // Try Clipboard API first
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(() => {
-                showCopiedUI();
-            }).catch((err) => {
-                // Try the execCommand fallback
-                const ok = fallbackCopyText(text);
-                if (ok) {
-                    showCopiedUI();
-                } else {
-                    console.warn('Clipboard API failed and fallback failed:', err);
-                    showToast('Copy failed — showing prompt', 'wrong');
-                    tryPromptFallback();
-                }
+                setCopiedUI();
+            }).catch(() => {
+                // fallback to execCommand, otherwise show manual overlay
+                if (fallbackCopy(text)) setCopiedUI(); else showShareOverlay(text);
             });
         } else {
-            const ok = fallbackCopyText(text);
-            if (ok) showCopiedUI(); else tryPromptFallback();
         }
     }
 
@@ -1311,6 +1242,40 @@
 
     // ── Boot ──
     showStart();
+
+    // Share overlay helpers
+    function showShareOverlay(text) {
+        const ov = document.getElementById('shareOverlay');
+        const ta = document.getElementById('shareOverlayText');
+        ta.value = text;
+        ov.style.display = 'flex';
+        // Select content for manual copy
+        setTimeout(() => { ta.focus(); ta.select(); }, 30);
+    }
+    function hideShareOverlay() { document.getElementById('shareOverlay').style.display = 'none'; }
+    document.addEventListener('DOMContentLoaded', () => {
+        const copyBtn = document.getElementById('shareOverlayCopy');
+        const closeBtn = document.getElementById('shareOverlayClose');
+        copyBtn && copyBtn.addEventListener('click', () => {
+            const text = document.getElementById('shareOverlayText').value;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showToast('Copied to clipboard', 'correct');
+                    hideShareOverlay();
+                }).catch(() => {
+                    const ok = (function(str){
+                        const ta = document.createElement('textarea'); ta.value = str; ta.setAttribute('readonly',''); ta.style.position='absolute'; ta.style.left='-9999px'; document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, ta.value.length);
+                        let ok=false; try{ ok=document.execCommand('copy'); }catch(e){ok=false;} document.body.removeChild(ta); return !!ok;
+                    })(text);
+                    if (ok) { showToast('Copied to clipboard', 'correct'); hideShareOverlay(); }
+                });
+            } else {
+                const ok = (function(str){ const ta = document.createElement('textarea'); ta.value = str; ta.setAttribute('readonly',''); ta.style.position='absolute'; ta.style.left='-9999px'; document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, ta.value.length); let ok=false; try{ ok=document.execCommand('copy'); }catch(e){ok=false;} document.body.removeChild(ta); return !!ok; })(text);
+                if (ok) { showToast('Copied to clipboard', 'correct'); hideShareOverlay(); }
+            }
+        });
+        closeBtn && closeBtn.addEventListener('click', hideShareOverlay);
+    });
 </script>
 </body>
 </html>
